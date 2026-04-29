@@ -1,0 +1,28 @@
+# Android / Gradle
+/.gradle/
+/.gradle-user-home/
+/build/
+/app/build/
+/.android/
+/local.properties
+
+# IDE
+/.idea/
+*.iml
+*.ipr
+*.iws
+
+# Root-level generated artifacts
+/*.xml
+/*.png
+/*.mp4
+
+# Logs and temp files
+*.log
+*.tmp
+*.swp
+*.swo
+
+# OS cruft
+.DS_Store
+Thumbs.db
