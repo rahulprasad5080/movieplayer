@@ -11,6 +11,10 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.upstream.DefaultAllocator
+import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import com.example.videoplayer.model.AudioTrack
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -28,9 +32,35 @@ class PlayerManager(private val context: Context) {
     }
 
     private val trackSelector = DefaultTrackSelector(context)
-    val player: ExoPlayer = ExoPlayer.Builder(context)
-        .setTrackSelector(trackSelector)
+    
+    private val renderersFactory = DefaultRenderersFactory(context.applicationContext)
+        .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+        .setEnableDecoderFallback(true)
+        .setEnableAudioTrackPlaybackParams(true)
+        .also {
+            it.forceEnableMediaCodecAsynchronousQueueing()
+        }
+
+    private val loadControl = DefaultLoadControl.Builder()
+        .setAllocator(DefaultAllocator(true, 65536))
+        .setBufferDurationsMs(
+            180000, // minBufferMs
+            300000, // maxBufferMs
+            1000,   // bufferForPlaybackMs
+            5000    // bufferForPlaybackAfterRebufferMs
+        )
+        .setPrioritizeTimeOverSizeThresholds(false)
+        .setTargetBufferBytes(-1)
         .build()
+
+    private val bandwidthMeter = DefaultBandwidthMeter.Builder(context.applicationContext).build()
+
+    val player: ExoPlayer = ExoPlayer.Builder(context.applicationContext, renderersFactory)
+        .setTrackSelector(trackSelector)
+        .setLoadControl(loadControl)
+        .setBandwidthMeter(bandwidthMeter)
+        .build()
+        
     private var currentStreamUrl: String? = null
 
     private val _isPlaying = MutableStateFlow(false)
@@ -88,11 +118,10 @@ class PlayerManager(private val context: Context) {
         val httpFactory = DefaultHttpDataSource.Factory().setAllowCrossProtocolRedirects(true)
         
         // Pipeline: FilteringTsDataSource -> ProxyDataSource -> Http
-        val dsFactory = androidx.media3.datasource.DataSource.Factory {
-            FilteringTsDataSource(
-                ProxyDataSource(httpFactory.createDataSource(), TsPmtParser(), PlaylistProxy())
-            )
+        val proxyDsFactory = androidx.media3.datasource.DataSource.Factory {
+            ProxyDataSource(httpFactory.createDataSource(), TsPmtParser(), PlaylistProxy())
         }
+        val dsFactory = FilteringTsDataSource.Factory(proxyDsFactory)
 
         val source = HlsMediaSource.Factory(dsFactory)
             .setAllowChunklessPreparation(false)

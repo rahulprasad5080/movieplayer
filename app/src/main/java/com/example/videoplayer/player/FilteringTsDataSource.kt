@@ -14,6 +14,7 @@ import java.io.IOException
 @OptIn(UnstableApi::class)
 class FilteringTsDataSource(
     private val upstream: DataSource,
+    private val ccMap: IntArray
 ) : DataSource {
 
     companion object {
@@ -21,13 +22,13 @@ class FilteringTsDataSource(
     }
 
     class Factory(private val upstreamFactory: DataSource.Factory) : DataSource.Factory {
-        override fun createDataSource() = FilteringTsDataSource(upstreamFactory.createDataSource())
+        private val sharedCcMap = IntArray(8192) { -1 }
+        override fun createDataSource() = FilteringTsDataSource(upstreamFactory.createDataSource(), sharedCcMap)
     }
 
     private var targetPid: Int = -1
     private var basePid: Int = -1
     private var audioPids: Set<Int> = emptySet()
-    private val ccMap = IntArray(8192) { -1 }
 
     override fun addTransferListener(transferListener: TransferListener) {
         upstream.addTransferListener(transferListener)
@@ -52,65 +53,124 @@ class FilteringTsDataSource(
             "FilteringTs",
             "Opening segment with targetPid=$targetPid, basePid=$basePid, audioPids=$audioPids (URI: ${dataSpec.uri})"
         )
-        // Reset CC map on each new segment to avoid artifacts
-        for (i in ccMap.indices) ccMap[i] = -1
+        // Removed CC map reset to maintain continuity across segments and seamless track switches
         return upstream.open(dataSpec)
     }
 
-    override fun read(outBuf: ByteArray, offset: Int, length: Int): Int {
-        val bytesRead = upstream.read(outBuf, offset, length)
-        if (bytesRead <= 0 || targetPid == -1) return bytesRead
+    private var remainder = ByteArray(PKT)
+    private var remainderLen = 0
 
-        var i = offset
-        val end = offset + bytesRead
-        while (i + PKT <= end) {
-            if (outBuf[i] == 0x47.toByte()) {
-                val pid = ((outBuf[i + 1].toInt() and 0x1F) shl 8) or (outBuf[i + 2].toInt() and 0xFF)
-                val afc = (outBuf[i + 3].toInt() and 0x30) shr 4
-                val hasPayload = (afc == 1 || afc == 3)
+    private fun processPacket(outBuf: ByteArray, i: Int) {
+        val pid = ((outBuf[i + 1].toInt() and 0x1F) shl 8) or (outBuf[i + 2].toInt() and 0xFF)
+        val afc = (outBuf[i + 3].toInt() and 0x30) shr 4
+        val hasPayload = (afc == 1 || afc == 3)
 
-                // PCR/Sync Preservation
-                var hasPcr = false
-                if (afc >= 2 && i + 5 < end) {
-                    val afLen = outBuf[i + 4].toInt() and 0xFF
-                    val afFlags = outBuf[i + 5].toInt() and 0xFF
-                    if (afLen > 0 && (afFlags and 0x10) != 0) hasPcr = true
-                }
+        // PCR/Sync Preservation
+        var hasPcr = false
+        if (afc >= 2 && i + 5 < outBuf.size) {
+            val afLen = outBuf[i + 4].toInt() and 0xFF
+            val afFlags = outBuf[i + 5].toInt() and 0xFF
+            if (afLen > 0 && (afFlags and 0x10) != 0) hasPcr = true
+        }
 
-                if (pid == targetPid && targetPid != basePid && basePid != -1) {
-                    // Remap selected track to base PID
-                    outBuf[i + 1] = (outBuf[i + 1].toInt() and 0xE0 or (basePid shr 8)).toByte()
-                    outBuf[i + 2] = (basePid and 0xFF).toByte()
-                    updateCc(outBuf, i, basePid, hasPayload)
-                } else if (pid == basePid && targetPid != basePid) {
-                    // Mute original primary unless it has PCR
-                    if (!hasPcr) {
-                        outBuf[i + 1] = (outBuf[i + 1].toInt() or 0x1F).toByte()
-                        outBuf[i + 2] = 0xFF.toByte()
-                    } else {
-                        updateCc(outBuf, i, basePid, hasPayload)
-                    }
-                } else if (pid in audioPids && pid != targetPid) {
-                    // Mute all other audio tracks
-                    if (!hasPcr) {
-                        outBuf[i + 1] = (outBuf[i + 1].toInt() or 0x1F).toByte()
-                        outBuf[i + 2] = 0xFF.toByte()
-                    }
-                }
-                // Video and other PIDs pass through naturally
-                i += PKT
+        if (pid == targetPid && targetPid != basePid && basePid != -1) {
+            // Remap selected track to base PID
+            outBuf[i + 1] = (outBuf[i + 1].toInt() and 0xE0 or (basePid shr 8)).toByte()
+            outBuf[i + 2] = (basePid and 0xFF).toByte()
+            updateCc(outBuf, i, basePid, hasPayload)
+        } else if (pid == basePid && targetPid != basePid) {
+            // Mute original primary unless it has PCR
+            if (!hasPcr) {
+                outBuf[i + 1] = (outBuf[i + 1].toInt() or 0x1F).toByte()
+                outBuf[i + 2] = 0xFF.toByte()
             } else {
-                i++
+                if (hasPayload && afc == 3) {
+                    // Strip audio payload so it doesn't mix with targetPid audio
+                    val oldAfLen = outBuf[i + 4].toInt() and 0xFF
+                    outBuf[i + 3] = (outBuf[i + 3].toInt() and 0xCF or 0x20).toByte()
+                    outBuf[i + 4] = 183.toByte()
+                    for (p in (i + 5 + oldAfLen) until (i + PKT)) {
+                        outBuf[p] = 0xFF.toByte()
+                    }
+                }
+                updateCc(outBuf, i, basePid, false)
+            }
+        } else if (pid in audioPids && pid != targetPid) {
+            // Mute all other audio tracks
+            if (!hasPcr) {
+                outBuf[i + 1] = (outBuf[i + 1].toInt() or 0x1F).toByte()
+                outBuf[i + 2] = 0xFF.toByte()
             }
         }
-        return bytesRead
+        // Video and other PIDs pass through naturally
+    }
+
+    override fun read(outBuf: ByteArray, offset: Int, length: Int): Int {
+        if (length == 0) return 0
+        if (targetPid == -1) return upstream.read(outBuf, offset, length)
+
+        if (remainderLen > 0 && length <= remainderLen) {
+            System.arraycopy(remainder, 0, outBuf, offset, length)
+            remainderLen -= length
+            System.arraycopy(remainder, length, remainder, 0, remainderLen)
+            return length
+        }
+
+        System.arraycopy(remainder, 0, outBuf, offset, remainderLen)
+        val currentOffset = offset + remainderLen
+        val remainingLength = length - remainderLen
+
+        val bytesRead = upstream.read(outBuf, currentOffset, remainingLength)
+        
+        val totalBytes = if (bytesRead > 0) remainderLen + bytesRead else remainderLen
+        if (totalBytes == 0) return bytesRead
+
+        var i = offset
+        val end = offset + totalBytes
+        var lastValidPacketEnd = offset
+        
+        while (i + PKT <= end) {
+            if (outBuf[i] == 0x47.toByte()) {
+                processPacket(outBuf, i)
+                i += PKT
+                lastValidPacketEnd = i
+            } else {
+                i++
+                lastValidPacketEnd = i
+            }
+        }
+        
+        val leftover = end - lastValidPacketEnd
+        if (leftover > 0) {
+            if (remainder.size < leftover) {
+                remainder = ByteArray(leftover + PKT)
+            }
+            System.arraycopy(outBuf, lastValidPacketEnd, remainder, 0, leftover)
+            remainderLen = leftover
+        } else {
+            remainderLen = 0
+        }
+        
+        val validBytesToReturn = lastValidPacketEnd - offset
+        if (validBytesToReturn > 0) {
+            return validBytesToReturn
+        } else if (bytesRead == androidx.media3.common.C.RESULT_END_OF_INPUT) {
+            remainderLen = 0
+            return leftover
+        } else {
+            return read(outBuf, offset, length)
+        }
     }
 
     private fun updateCc(buf: ByteArray, i: Int, pid: Int, hasPayload: Boolean) {
-        if (!hasPayload) return
-        val nextCC = (ccMap[pid] + 1) and 0x0F
-        ccMap[pid] = nextCC
-        buf[i + 3] = (buf[i + 3].toInt() and 0xF0 or nextCC).toByte()
+        var cc = ccMap[pid]
+        if (hasPayload) {
+            cc = if (cc == -1) 0 else (cc + 1) and 0x0F
+            ccMap[pid] = cc
+        } else {
+            if (cc == -1) cc = 0
+        }
+        buf[i + 3] = (buf[i + 3].toInt() and 0xF0 or cc).toByte()
     }
 
     override fun getUri(): Uri? = upstream.uri
