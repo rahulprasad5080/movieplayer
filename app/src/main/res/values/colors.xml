@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Primary Palette -->
+    <color name="accent_primary">#7C4DFF</color>
+    <color name="accent_secondary">#00BCD4</color>
+    <color name="accent_gradient_end">#448AFF</color>
+
+    <!-- Backgrounds -->
+    <color name="bg_primary">#0F0F1A</color>
+    <color name="bg_player">#000000</color>
+    <color name="surface">#1A1A2E</color>
+    <color name="surface_variant">#16213E</color>
+    <color name="chip_bg">#2A1A5E</color>
+
+    <!-- Text -->
+    <color name="text_primary">#FFFFFF</color>
+    <color name="text_secondary">#9E9EAF</color>
+    <color name="white">#FFFFFF</color>
+
+    <!-- UI elements -->
+    <color name="divider">#252540</color>
+    <color name="track_selected_bg">#1A7C4DFF</color>
+    <color name="control_button_bg">#66000000</color>
+    <color name="play_button_bg">#CC7C4DFF</color>
+    <color name="audio_button_bg">#997C4DFF</color>
+    <color name="language_badge_bg">#1A7C4DFF</color>
+
+    <!-- Status bar / nav bar -->
+    <color name="colorPrimary">#7C4DFF</color>
+    <color name="colorPrimaryVariant">#5C35CC</color>
+    <color name="colorOnPrimary">#FFFFFF</color>
+</resources>

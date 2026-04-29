@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Downloadable font descriptor for 'Outfit' from Google Fonts.
+    This lets Android download the font at runtime via Google Play Services.
+    No font file bundling needed.
+-->
+<font-family xmlns:app="http://schemas.android.com/apk/res-auto"
+    app:fontProviderAuthority="com.google.android.gms.fonts"
+    app:fontProviderPackage="com.google.android.gms"
+    app:fontProviderQuery="Outfit"
+    app:fontProviderCerts="@array/com_google_android_gms_fonts_certs">
+</font-family>

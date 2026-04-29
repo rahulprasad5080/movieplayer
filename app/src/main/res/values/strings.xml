@@ -1,0 +1,11 @@
+<resources>
+    <string name="app_name">StreamPlayer</string>
+    <string name="title_activity_player">Player</string>
+    <string name="enter_stream_url">Enter M3U8 URL…</string>
+    <string name="play_stream">Play Stream</string>
+    <string name="audio_tracks">Audio Tracks</string>
+    <string name="no_audio_tracks">No audio tracks detected</string>
+    <string name="buffering">Buffering…</string>
+    <string name="error_no_url">Please enter a valid M3U8 URL</string>
+    <string name="use_sample">Use Sample Stream</string>
+</resources>

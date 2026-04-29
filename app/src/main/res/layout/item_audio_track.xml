@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:minHeight="60dp"
+    android:paddingStart="20dp"
+    android:paddingTop="14dp"
+    android:paddingEnd="20dp"
+    android:paddingBottom="14dp">
+
+    <!-- Language code badge (e.g. "EN", "HI") -->
+    <TextView
+        android:id="@+id/tvTrackLanguage"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:background="@drawable/bg_language_badge"
+        android:fontFamily="@font/outfit_bold"
+        android:gravity="center"
+        android:text="EN"
+        android:textColor="@color/accent_primary"
+        android:textSize="11sp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <!-- Track label (e.g. "English", "Hindi Stereo") -->
+    <TextView
+        android:id="@+id/tvTrackLabel"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="14dp"
+        android:layout_marginEnd="8dp"
+        android:fontFamily="@font/outfit_semibold"
+        android:text="English"
+        android:textColor="@color/text_primary"
+        android:textSize="15sp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toStartOf="@id/ivTrackCheck"
+        app:layout_constraintStart_toEndOf="@id/tvTrackLanguage"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <!-- Check / radio icon (selected state) -->
+    <ImageView
+        android:id="@+id/ivTrackCheck"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:src="@drawable/ic_radio_unchecked"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>
