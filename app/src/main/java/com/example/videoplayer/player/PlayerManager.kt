@@ -111,6 +111,7 @@ class PlayerManager(private val context: Context) {
         currentStreamUrl = url
         _playerError.value = null
         apiTrackConfigs = apiTracks
+        currentEmbeddedTracks = emptyList()
         ProxyAudioMetadataStore.clear(url)
         publishVisibleTracks()
         
@@ -341,6 +342,11 @@ class PlayerManager(private val context: Context) {
         embeddedTracks: List<AudioTrack>
     ): AudioTrack? {
         if (embeddedTracks.isEmpty()) return null
+
+        config.index?.let { apiIndex ->
+            embeddedTracks.firstOrNull { it.index == apiIndex }?.let { return it }
+        }
+
         val candidates = listOfNotNull(
             config.languageName,
             config.abbreviate,
