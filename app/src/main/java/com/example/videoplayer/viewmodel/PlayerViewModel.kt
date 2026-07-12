@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.videoplayer.model.AudioTrack
+import com.example.videoplayer.model.TrackApiParser
 import com.example.videoplayer.model.PlayerState
 import com.example.videoplayer.player.PlayerManager
 import kotlinx.coroutines.flow.SharingStarted
@@ -54,7 +55,18 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     // ── Delegated Actions ─────────────────────────────────────────────────────
 
-    fun loadAndPlay(url: String) = playerManager.loadAndPlay(url)
+    fun loadAndPlay(url: String, tracksPayload: String? = null) {
+        val apiTracks = TrackApiParser.parseTracksPayload(tracksPayload.orEmpty())
+        if (tracksPayload.isNullOrBlank()) {
+            android.util.Log.i("PlayerViewModel", "loadAndPlay() using embedded-only mode for $url")
+        } else {
+            android.util.Log.i(
+                "PlayerViewModel",
+                "loadAndPlay() parsed ${apiTracks.size} API tracks for $url"
+            )
+        }
+        playerManager.loadAndPlay(url, apiTracks)
+    }
 
     fun pause() = playerManager.pause()
 

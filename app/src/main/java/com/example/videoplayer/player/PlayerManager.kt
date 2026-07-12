@@ -16,6 +16,7 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.upstream.DefaultAllocator
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import com.example.videoplayer.model.AudioTrack
+import com.example.videoplayer.model.ApiTrackConfig
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -78,6 +79,9 @@ class PlayerManager(private val context: Context) {
     private val _selectedAudioIndex = MutableStateFlow(-1)
     val selectedAudioIndex: StateFlow<Int> = _selectedAudioIndex.asStateFlow()
 
+    private var apiTrackConfigs: List<ApiTrackConfig> = emptyList()
+    private var currentEmbeddedTracks: List<AudioTrack> = emptyList()
+
     private val playerListener = object : Player.Listener {
         override fun onPlaybackStateChanged(state: Int) {
             _isBuffering.value = state == Player.STATE_BUFFERING
@@ -102,11 +106,13 @@ class PlayerManager(private val context: Context) {
         player.addListener(playerListener)
     }
 
-    fun loadAndPlay(url: String) {
+    fun loadAndPlay(url: String, apiTracks: List<ApiTrackConfig> = apiTrackConfigs) {
+        Log.i(TAG, "loadAndPlay() requested url=$url apiTracks=${apiTracks.size}")
         currentStreamUrl = url
         _playerError.value = null
-        _audioTracks.value = emptyList()
+        apiTrackConfigs = apiTracks
         ProxyAudioMetadataStore.clear(url)
+        publishVisibleTracks()
         
         // Build the Proxy URL
         val proxyUri = Uri.Builder()
@@ -133,20 +139,58 @@ class PlayerManager(private val context: Context) {
     }
 
     fun selectAudioTrack(audioTrack: AudioTrack) {
-        // Standard ExoPlayer selection (now works because Proxy added tracks to manifest)
+        Log.i(
+            TAG,
+            "selectAudioTrack() label=${audioTrack.label} " +
+                "individualVideo=${audioTrack.existIndividualVideo} " +
+                "playbackUrl=${audioTrack.playbackUrl}"
+        )
+
+        if (audioTrack.existIndividualVideo) {
+            val playbackUrl = audioTrack.playbackUrl
+            if (playbackUrl.isNullOrBlank()) {
+                Log.w(TAG, "Individual video track selected but no playbackUrl was provided for ${audioTrack.label}")
+                return
+            }
+
+            Log.i(TAG, "Switching to individual video URL for ${audioTrack.label}: $playbackUrl")
+            loadAndPlay(playbackUrl, apiTrackConfigs)
+            return
+        }
+
+        // Standard ExoPlayer selection for embedded audio renditions.
         val tracks = player.currentTracks
+        val embeddedTrack = findEmbeddedTrackByLabel(audioTrack.label)
+        if (embeddedTrack == null) {
+            Log.w(TAG, "Could not resolve embedded track for ${audioTrack.label}; falling back to direct selector scan")
+        }
+
         var audioGroupIdx = 0
         for (group in tracks.groups) {
             if (group.type != androidx.media3.common.C.TRACK_TYPE_AUDIO) continue
-            if (audioGroupIdx == audioTrack.groupIndex) {
+            val selectedIndex = embeddedTrack?.index ?: audioTrack.index
+            val matches = embeddedTrack?.groupIndex?.let { it == audioGroupIdx } ?: true
+            if (matches) {
+                Log.i(
+                    TAG,
+                    "Applying embedded audio override group=$audioGroupIdx trackIndex=$selectedIndex " +
+                        "label=${audioTrack.label}"
+                )
                 trackSelector.parameters = trackSelector.parameters.buildUpon()
                     .clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_AUDIO)
-                    .addOverride(androidx.media3.common.TrackSelectionOverride(group.mediaTrackGroup, audioTrack.index))
+                    .addOverride(
+                        androidx.media3.common.TrackSelectionOverride(
+                            group.mediaTrackGroup,
+                            selectedIndex
+                        )
+                    )
                     .build()
                 return
             }
             audioGroupIdx++
         }
+
+        Log.w(TAG, "No embedded audio group found for ${audioTrack.label}")
     }
 
     private val languageMap = mapOf(
@@ -163,8 +207,8 @@ class PlayerManager(private val context: Context) {
 
     private fun updateTrackList(tracks: Tracks) {
         val audioGroups = tracks.groups.filter { it.type == androidx.media3.common.C.TRACK_TYPE_AUDIO }
-        val result = mutableListOf<AudioTrack>()
         val discoveredAudioPids = ProxyAudioMetadataStore.get(currentStreamUrl)
+        val embeddedResult = mutableListOf<AudioTrack>()
         val leadingEmbeddedGroupCount = calculateLeadingEmbeddedGroupCount(
             audioGroupCount = audioGroups.size,
             discoveredAudioCount = discoveredAudioPids.size
@@ -176,7 +220,7 @@ class PlayerManager(private val context: Context) {
             }
             for (i in 0 until group.length) {
                 val format = group.getTrackFormat(i)
-                val visibleTrackIndex = result.size
+                val visibleTrackIndex = embeddedResult.size
                 val discoveredTrack = discoveredAudioPids.getOrNull(visibleTrackIndex)
                 val resolvedLanguage = discoveredTrack?.language ?: format.language ?: "und"
                 val resolvedLabel = discoveredTrack?.language
@@ -187,7 +231,7 @@ class PlayerManager(private val context: Context) {
                         fallbackIndex = visibleTrackIndex
                     )
 
-                result.add(AudioTrack(
+                embeddedResult.add(AudioTrack(
                     index = i,
                     groupIndex = audioGroupIdx,
                     language = resolvedLanguage,
@@ -197,8 +241,65 @@ class PlayerManager(private val context: Context) {
             }
         }
 
-        _audioTracks.value = result
-        _selectedAudioIndex.value = resolveSelectedAudioIndex(result, leadingEmbeddedGroupCount, audioGroups)
+        currentEmbeddedTracks = embeddedResult
+        publishVisibleTracks(embeddedResult = embeddedResult, audioGroups = audioGroups)
+    }
+
+    private fun publishVisibleTracks(
+        embeddedResult: List<AudioTrack> = currentEmbeddedTracks,
+        audioGroups: List<Tracks.Group> = emptyList()
+    ) {
+        if (apiTrackConfigs.isEmpty()) {
+            _audioTracks.value = embeddedResult
+            _selectedAudioIndex.value = resolveSelectedAudioIndex(
+                visibleTracks = embeddedResult,
+                leadingEmbeddedGroupCount = 0,
+                audioGroups = audioGroups.ifEmpty {
+                    emptyList()
+                }
+            )
+            Log.i(TAG, "Visible audio tracks updated from embedded manifest only: count=${embeddedResult.size}")
+            return
+        }
+
+        val mergedTracks = apiTrackConfigs.mapIndexed { position, config ->
+            val embeddedMatch = findEmbeddedTrackByConfig(config, embeddedResult)
+            val playbackUrl = resolvePlaybackUrl(config)
+            val isSelected = if (config.existIndividualVideo) {
+                playbackUrl != null && normalizeUrl(playbackUrl) == normalizeUrl(currentStreamUrl)
+            } else {
+                embeddedMatch?.isSelected == true || config.isDefault
+            }
+
+            AudioTrack(
+                index = embeddedMatch?.index ?: position,
+                groupIndex = embeddedMatch?.groupIndex ?: position,
+                language = config.abbreviate ?: config.languageName,
+                label = config.languageName,
+                isSelected = isSelected,
+                existIndividualVideo = config.existIndividualVideo,
+                playbackUrl = playbackUrl,
+                languageId = config.languageId,
+                abbreviate = config.abbreviate,
+                order = config.order
+            )
+        }
+
+        _audioTracks.value = mergedTracks
+        _selectedAudioIndex.value = mergedTracks.indexOfFirst { it.isSelected }
+
+        Log.i(
+            TAG,
+            "Visible audio tracks updated from API config: count=${mergedTracks.size}, " +
+                "selectedIndex=${_selectedAudioIndex.value}"
+        )
+        mergedTracks.forEachIndexed { index, track ->
+            Log.i(
+                TAG,
+                "Track[$index] label=${track.label}, individualVideo=${track.existIndividualVideo}, " +
+                    "playbackUrl=${track.playbackUrl}, selected=${track.isSelected}"
+            )
+        }
     }
 
     private fun calculateLeadingEmbeddedGroupCount(
@@ -233,6 +334,55 @@ class PlayerManager(private val context: Context) {
             }
 
         return if (hiddenSelected) 0 else -1
+    }
+
+    private fun findEmbeddedTrackByConfig(
+        config: ApiTrackConfig,
+        embeddedTracks: List<AudioTrack>
+    ): AudioTrack? {
+        if (embeddedTracks.isEmpty()) return null
+        val candidates = listOfNotNull(
+            config.languageName,
+            config.abbreviate,
+            config.languageId?.toString()
+        ).map { normalizeTrackToken(it) }
+
+        return embeddedTracks.firstOrNull { track ->
+            val trackTokens = listOfNotNull(
+                track.label,
+                track.language,
+                resolveLanguageName(track.language),
+                track.abbreviate
+            ).map { normalizeTrackToken(it) }
+
+            candidates.any { candidate -> candidate in trackTokens }
+        } ?: embeddedTracks.firstOrNull()
+    }
+
+    private fun findEmbeddedTrackByLabel(label: String): AudioTrack? {
+        val normalizedLabel = normalizeTrackToken(label)
+        return currentEmbeddedTracks.firstOrNull { track ->
+            listOfNotNull(
+                track.label,
+                track.language,
+                resolveLanguageName(track.language),
+                track.abbreviate
+            ).map { normalizeTrackToken(it) }.any { it == normalizedLabel }
+        }
+    }
+
+    private fun resolvePlaybackUrl(config: ApiTrackConfig): String? {
+        val direct = config.playbackUrl?.trim().takeIf { !it.isNullOrBlank() }
+        if (direct != null) return direct
+
+        val fromVideo = config.videos
+            .firstNotNullOfOrNull { it.playbackUrl?.trim().takeIf { url -> !url.isNullOrBlank() } }
+
+        if (fromVideo == null && config.existIndividualVideo) {
+            Log.w(TAG, "No playback URL found for individual video track ${config.languageName}")
+        }
+
+        return fromVideo
     }
 
     private fun resolveTrackLabel(label: String?, language: String?, fallbackIndex: Int): String {
@@ -280,6 +430,22 @@ class PlayerManager(private val context: Context) {
             normalized.matches(Regex("^track\\s*\\d*$")) ||
             normalized.matches(Regex("^language\\s*\\d*$")) ||
             normalized.matches(Regex("^\\d+$"))
+    }
+
+    private fun normalizeTrackToken(value: String?): String {
+        return value
+            ?.trim()
+            ?.lowercase(Locale.ENGLISH)
+            ?.replace(Regex("\\s+"), " ")
+            .orEmpty()
+    }
+
+    private fun normalizeUrl(url: String?): String {
+        return url
+            ?.trim()
+            ?.substringBefore('?')
+            ?.substringBefore('#')
+            .orEmpty()
     }
 
     fun pause() {

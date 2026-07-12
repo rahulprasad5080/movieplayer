@@ -35,6 +35,7 @@ class PlayerActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_STREAM_URL = "extra_stream_url"
+        const val EXTRA_TRACKS_PAYLOAD = "extra_tracks_payload"
     }
 
     private lateinit var binding: ActivityPlayerBinding
@@ -62,7 +63,12 @@ class PlayerActivity : AppCompatActivity() {
                     finish()
                     return
                 }
-            viewModel.loadAndPlay(url)
+            val tracksPayload = intent.getStringExtra(EXTRA_TRACKS_PAYLOAD)
+            android.util.Log.i(
+                "PlayerActivity",
+                "Launching playback url=$url tracksPayloadPresent=${!tracksPayload.isNullOrBlank()}"
+            )
+            viewModel.loadAndPlay(url, tracksPayload)
         }
     }
 
@@ -149,12 +155,21 @@ class PlayerActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
 
+            android.util.Log.i(
+                "PlayerActivity",
+                "Opening audio selector with ${tracks.size} items; selected=${viewModel.playerManager.selectedAudioIndex.value}"
+            )
+
             val trackLabels = tracks.map { it.label }.toTypedArray()
             val selectedIndex = viewModel.playerManager.selectedAudioIndex.value
 
             com.google.android.material.dialog.MaterialAlertDialogBuilder(this, R.style.CustomAlertDialog)
                 .setTitle("Select Audio Language")
                 .setSingleChoiceItems(trackLabels, selectedIndex) { dialog, which ->
+                    android.util.Log.i(
+                        "PlayerActivity",
+                        "User tapped track label=${tracks[which].label} individualVideo=${tracks[which].existIndividualVideo}"
+                    )
                     viewModel.selectAudioTrack(tracks[which])
                     dialog.dismiss()
                 }

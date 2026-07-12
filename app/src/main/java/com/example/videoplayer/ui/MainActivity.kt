@@ -25,7 +25,7 @@ class MainActivity : AppCompatActivity() {
         setupClickListeners()
 
         // Pre-fill the provided HLS URL for testing
-        binding.etStreamUrl.setText("https://img1.hsxco.com/hls_mps/af87fa81accabd7b9e646064481c9d25970071bb/720/index_218.m3u8?auth_key=ZkEpb49YHvDaV3wb57lw7Wj1FcE69%2FBVywkvqA%2B2Hdo%3D&expire=1777356690733")
+        binding.etStreamUrl.setText("https://img1.hscow.com/hls_mps/0f3c62717d846ee8612d7601b65b02835fa89d27/720/index_287.m3u8?Expires=1783864853&KeyName=Signature&Signature=tFOAv2aUz7zAMbUvN-Y0VcED0WM8oD0wnHeQKVvFJsxxcc45eOa54zpv_yjS8TnlFrUSFh6g5IZkcG8tgv8GDg==")
     }
 
     private fun setupAnimations() {
@@ -36,18 +36,26 @@ class MainActivity : AppCompatActivity() {
     private fun setupClickListeners() {
         binding.btnPlay.setOnClickListener {
             val url = binding.etStreamUrl.text?.toString()?.trim()
+            val tracksJson = binding.etTracksJson.text?.toString()?.trim().orEmpty()
             if (url.isNullOrEmpty()) {
                 binding.tilStreamUrl.error = "Please enter a valid M3U8 URL"
                 return@setOnClickListener
             }
             binding.tilStreamUrl.error = null
-            launchPlayer(url)
+            launchPlayer(url, tracksJson.ifBlank { null })
         }
     }
 
-    private fun launchPlayer(url: String) {
+    private fun launchPlayer(url: String, tracksJson: String? = null) {
+        android.util.Log.i(
+            "MainActivity",
+            "Launching player url=$url tracksJsonPresent=${!tracksJson.isNullOrBlank()}"
+        )
         val intent = Intent(this, PlayerActivity::class.java).apply {
             putExtra(PlayerActivity.EXTRA_STREAM_URL, url)
+            if (!tracksJson.isNullOrBlank()) {
+                putExtra(PlayerActivity.EXTRA_TRACKS_PAYLOAD, tracksJson)
+            }
         }
         startActivity(intent)
         overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)

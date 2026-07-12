@@ -65,11 +65,15 @@ dependencies {
     implementation(libs.androidx.fragment.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.recyclerview)
+    implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.kotlinx.coroutines.core)
 
     // AndroidX Media3 ExoPlayer with HLS support
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.exoplayer.hls)
     implementation(libs.media3.ui)
     implementation(libs.media3.common)
+    implementation(libs.media3.datasource)
     implementation(libs.media3.session)
 }
