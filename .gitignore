@@ -4,7 +4,15 @@
 /build/
 /app/build/
 /.android/
+/captures/
+/app/captures/
+/app/.cxx/
+/app/.externalNativeBuild/
 /local.properties
+*.keystore
+*.jks
+*.apk
+*.aab
 
 # IDE
 /.idea/
