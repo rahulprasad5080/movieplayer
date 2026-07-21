@@ -6,7 +6,13 @@ package com.example.videoplayer.player
  */
 object ProxyAudioMetadataStore {
 
-    private val audioPidsByUrl = linkedMapOf<String, List<TsPmtParser.AudioPid>>()
+    private const val MAX_CAPACITY = 20
+
+    private val audioPidsByUrl = object : LinkedHashMap<String, List<TsPmtParser.AudioPid>>(MAX_CAPACITY, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<TsPmtParser.AudioPid>>?): Boolean {
+            return size > MAX_CAPACITY
+        }
+    }
 
     @Synchronized
     fun save(url: String, audioPids: List<TsPmtParser.AudioPid>) {
@@ -23,5 +29,10 @@ object ProxyAudioMetadataStore {
     fun clear(url: String?) {
         if (url.isNullOrBlank()) return
         audioPidsByUrl.remove(url)
+    }
+
+    @Synchronized
+    fun clearAll() {
+        audioPidsByUrl.clear()
     }
 }

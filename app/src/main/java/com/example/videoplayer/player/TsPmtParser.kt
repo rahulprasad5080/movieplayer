@@ -63,9 +63,19 @@ class TsPmtParser {
         val conn = URL(url).openConnection() as HttpURLConnection
         conn.connectTimeout = 10_000; conn.readTimeout = 15_000
         conn.setRequestProperty("Range", "bytes=0-${maxBytes - 1}")
-        val bytes = conn.inputStream.readBytes().take(maxBytes).toByteArray()
-        conn.disconnect()
-        return bytes
+        val buffer = ByteArray(maxBytes)
+        var totalRead = 0
+        try {
+            val input = conn.inputStream
+            while (totalRead < maxBytes) {
+                val bytesRead = input.read(buffer, totalRead, maxBytes - totalRead)
+                if (bytesRead == -1) break
+                totalRead += bytesRead
+            }
+        } finally {
+            conn.disconnect()
+        }
+        return buffer.copyOf(totalRead)
     }
 
     private fun parse(data: ByteArray): List<AudioPid> {

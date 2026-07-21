@@ -2,7 +2,7 @@ package com.example.videoplayer.ui
 
 import android.content.Intent
 import android.os.Bundle
-import android.view.View
+import androidx.core.app.ActivityOptionsCompat
 import android.view.animation.AnimationUtils
 import androidx.appcompat.app.AppCompatActivity
 import com.example.videoplayer.R
@@ -11,6 +11,13 @@ import com.example.videoplayer.databinding.ActivityMainBinding
 /**
  * Entry point – a URL-input screen that lets the user enter any M3U8 URL
  * and launch the player. Ships with a sample HLS stream URL pre-filled.
+ *
+ * Fields:
+ *  - Stream URL      : The HLS .m3u8 URL to play initially.
+ *  - Tracks JSON     : The 'tracks' JSON array from the movie details API response.
+ *  - Video URL API   : The video-URL fetch API endpoint. Required for tracks
+ *                      with existIndividualVideo=true. The player appends
+ *                      &languageId=<id> to this URL when user selects such a track.
  */
 class MainActivity : AppCompatActivity() {
 
@@ -23,9 +30,6 @@ class MainActivity : AppCompatActivity() {
 
         setupAnimations()
         setupClickListeners()
-
-        // Pre-fill the provided HLS URL for testing
-        binding.etStreamUrl.setText("https://img1.hscow.com/hls_mps/0f3c62717d846ee8612d7601b65b02835fa89d27/720/index_287.m3u8?Expires=1783864853&KeyName=Signature&Signature=tFOAv2aUz7zAMbUvN-Y0VcED0WM8oD0wnHeQKVvFJsxxcc45eOa54zpv_yjS8TnlFrUSFh6g5IZkcG8tgv8GDg==")
     }
 
     private fun setupAnimations() {
@@ -37,27 +41,45 @@ class MainActivity : AppCompatActivity() {
         binding.btnPlay.setOnClickListener {
             val url = binding.etStreamUrl.text?.toString()?.trim()
             val tracksJson = binding.etTracksJson.text?.toString()?.trim().orEmpty()
+            val videoUrlApi = binding.etVideoUrlApi.text?.toString()?.trim().orEmpty()
+
             if (url.isNullOrEmpty()) {
                 binding.tilStreamUrl.error = "Please enter a valid M3U8 URL"
                 return@setOnClickListener
             }
             binding.tilStreamUrl.error = null
-            launchPlayer(url, tracksJson.ifBlank { null })
+
+            launchPlayer(
+                url = url,
+                tracksJson = tracksJson.ifBlank { null },
+                videoUrlApi = videoUrlApi.ifBlank { null }
+            )
         }
     }
 
-    private fun launchPlayer(url: String, tracksJson: String? = null) {
+    private fun launchPlayer(
+        url: String,
+        tracksJson: String? = null,
+        videoUrlApi: String? = null
+    ) {
         android.util.Log.i(
             "MainActivity",
-            "Launching player url=$url tracksJsonPresent=${!tracksJson.isNullOrBlank()}"
+            "Launching player url=$url " +
+                "tracksJsonPresent=${!tracksJson.isNullOrBlank()} " +
+                "videoUrlApiPresent=${!videoUrlApi.isNullOrBlank()}"
         )
         val intent = Intent(this, PlayerActivity::class.java).apply {
             putExtra(PlayerActivity.EXTRA_STREAM_URL, url)
             if (!tracksJson.isNullOrBlank()) {
                 putExtra(PlayerActivity.EXTRA_TRACKS_PAYLOAD, tracksJson)
             }
+            if (!videoUrlApi.isNullOrBlank()) {
+                putExtra(PlayerActivity.EXTRA_VIDEO_URL_API, videoUrlApi)
+            }
         }
-        startActivity(intent)
-        overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
+        val options = ActivityOptionsCompat.makeCustomAnimation(
+            this, R.anim.slide_in_right, R.anim.slide_out_left
+        )
+        startActivity(intent, options.toBundle())
     }
 }

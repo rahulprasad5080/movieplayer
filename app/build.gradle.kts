@@ -17,20 +17,13 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
-    signingConfigs {
-        create("workspaceDebug") {
-            storeFile = rootProject.file(".android/debug.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
-        }
-    }
 
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
-            signingConfig = signingConfigs.getByName("workspaceDebug")
+            // Uses default Android debug keystore (~/.android/debug.keystore)
+            // signingConfig not needed — Android uses default debug keystore automatically
         }
 
         release {
