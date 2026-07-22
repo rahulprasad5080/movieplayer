@@ -4,7 +4,7 @@ import android.net.Uri
 import android.util.Log
 
 /**
- * Utility to "virtualize" an HLS manifest. 
+ * Utility to "virtualize" an HLS manifest..
  * Converts a simple Media Playlist into a Master Playlist with multiple audio tracks.
  */
 class PlaylistProxy {
