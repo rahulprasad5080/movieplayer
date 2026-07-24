@@ -17,6 +17,8 @@ import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.SeekParameters;
 import androidx.media3.exoplayer.hls.HlsMediaSource;
+import androidx.media3.exoplayer.source.MediaSource;
+import androidx.media3.exoplayer.source.ProgressiveMediaSource;
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
 import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.DefaultRenderersFactory;
@@ -37,8 +39,7 @@ import androidx.lifecycle.MutableLiveData;
 import androidx.lifecycle.LiveData;
 
 /**
- * Manages ExoPlayer using the HLS Manifest Proxy strategy.
- * Java version using LiveData instead of StateFlow.
+ * Manages ExoPlayer using native AndroidX Media3 player configurations.
  */
 @OptIn(markerClass = UnstableApi.class)
 public class PlayerManager {
@@ -169,35 +170,28 @@ public class PlayerManager {
         _playerError.setValue(null);
         apiTrackConfigs = apiTracks != null ? apiTracks : Collections.emptyList();
         currentEmbeddedTracks = Collections.emptyList();
-        ProxyAudioMetadataStore.getInstance().clear(url);
 
         // Clear previous track selection overrides
         trackSelector.setParameters(
                 trackSelector.getParameters().buildUpon()
                         .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
                         .build()
-        );        publishVisibleTracks();
-        
-        // Build the Proxy URL
-        Uri proxyUri = new Uri.Builder()
-                .scheme(PlaylistProxy.SCHEME_MANIFEST)
-                .authority("proxy")
-                .appendQueryParameter(PlaylistProxy.PARAM_URL, url)
-                .build();
+        );
+        publishVisibleTracks();
 
-        Log.i(TAG, "[PlayerLog] Created Manifest Proxy URI: " + proxyUri);
-
-        DefaultHttpDataSource.Factory httpFactory = new DefaultHttpDataSource.Factory()
+        DefaultHttpDataSource.Factory dsFactory = new DefaultHttpDataSource.Factory()
                 .setAllowCrossProtocolRedirects(true);
 
-        // Pipeline: FilteringTsDataSource -> ProxyDataSource -> Http
-        DataSource.Factory proxyDsFactory = () ->
-                new ProxyDataSource(httpFactory.createDataSource(), new TsPmtParser(), new PlaylistProxy());
-        DataSource.Factory dsFactory = new FilteringTsDataSource.Factory(proxyDsFactory);
+        MediaSource.Factory mediaSourceFactory;
+        String lowercaseUrl = url.toLowerCase(Locale.ENGLISH);
+        if (lowercaseUrl.contains(".m3u8")) {
+            mediaSourceFactory = new HlsMediaSource.Factory(dsFactory)
+                    .setAllowChunklessPreparation(false); // Parse PMT of HLS segments to discover multi-audio PIDs
+        } else {
+            mediaSourceFactory = new ProgressiveMediaSource.Factory(dsFactory);
+        }
 
-        HlsMediaSource source = new HlsMediaSource.Factory(dsFactory)
-                .setAllowChunklessPreparation(false)
-                .createMediaSource(MediaItem.fromUri(proxyUri));
+        MediaSource source = mediaSourceFactory.createMediaSource(MediaItem.fromUri(Uri.parse(url)));
 
         player.setMediaSource(source);
         if (savedPosition > 0L) {
@@ -353,37 +347,17 @@ public class PlayerManager {
             }
         }
 
-        List<TsPmtParser.AudioPid> discoveredAudioPids = ProxyAudioMetadataStore.getInstance().get(currentStreamUrl);
         List<AudioTrack> embeddedResult = new ArrayList<>();
-        int leadingEmbeddedGroupCount = calculateLeadingEmbeddedGroupCount(
-                audioGroups.size(), discoveredAudioPids.size()
-        );
-
-        Log.i(TAG, "[PlayerLog] updateTrackList(): totalAudioGroups=" + audioGroups.size() +
-                ", discoveredPidsCount=" + discoveredAudioPids.size() +
-                ", leadingSkipped=" + leadingEmbeddedGroupCount);
+        Log.i(TAG, "[PlayerLog] updateTrackList(): totalAudioGroups=" + audioGroups.size());
 
         for (int audioGroupIdx = 0; audioGroupIdx < audioGroups.size(); audioGroupIdx++) {
-            if (audioGroupIdx < leadingEmbeddedGroupCount) continue;
-
             Tracks.Group group = audioGroups.get(audioGroupIdx);
             for (int i = 0; i < group.length; i++) {
                 androidx.media3.common.Format format = group.getTrackFormat(i);
                 int visibleTrackIndex = embeddedResult.size();
-                TsPmtParser.AudioPid discoveredTrack = visibleTrackIndex < discoveredAudioPids.size()
-                        ? discoveredAudioPids.get(visibleTrackIndex) : null;
 
-                String resolvedLanguage = (discoveredTrack != null && discoveredTrack.getLanguage() != null)
-                        ? discoveredTrack.getLanguage()
-                        : (format.language != null ? format.language : "und");
-
-                String resolvedLabel;
-                if (discoveredTrack != null && discoveredTrack.getLanguage() != null) {
-                    String name = resolveLanguageName(discoveredTrack.getLanguage());
-                    resolvedLabel = name != null ? name : resolveTrackLabel(format.label, format.language, visibleTrackIndex);
-                } else {
-                    resolvedLabel = resolveTrackLabel(format.label, format.language, visibleTrackIndex);
-                }
+                String resolvedLanguage = format.language != null ? format.language : "und";
+                String resolvedLabel = resolveTrackLabel(format.label, format.language, visibleTrackIndex);
 
                 embeddedResult.add(new AudioTrack(
                         i, audioGroupIdx, resolvedLanguage, resolvedLabel,
